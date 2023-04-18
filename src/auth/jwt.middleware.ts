@@ -5,9 +5,8 @@ import {
 } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from './auth.service';
-import { of } from 'await-of';
 import { messages } from 'src/utils/constants';
-const { UNAUTHORIZED } = messages;
+const { UNAUTHORIZED, TOKEN_NOT_FOUND } = messages;
 
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {
@@ -16,13 +15,11 @@ export class AuthMiddleware implements NestMiddleware {
   async use(req: Request, res: Response, next: NextFunction) {
     const token = req.headers.authorization.split(' ')[1];
 
-    const [user, verifyingTokenError] = await of(
-      this.authService.verifyAccessToken(token)
-    );
-    if (verifyingTokenError) {
-      throw new BadRequestException(` ${verifyingTokenError.message}`);
+    if (!token) {
+      throw new BadRequestException(TOKEN_NOT_FOUND);
     }
 
+    const user = await this.authService.verifyAccessToken(token);
     if (!user) {
       return res.status(401).send(UNAUTHORIZED);
     }

@@ -16,7 +16,6 @@ import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from 'src/auth/auth.service';
 import { RegisterUserDto, LoginUserDto, RefreshTokenDTO } from './user.dto';
 import { UserService } from './user.service';
-import { of } from 'await-of';
 import { messages } from 'src/utils/constants';
 const {
   USER_ALREADY_REGISTER,
@@ -35,119 +34,103 @@ export class UserController {
   @Post('register')
   @UsePipes(new ValidationPipe({ transform: true }))
   @HttpCode(HttpStatus.OK)
-  async userRegister(@Body() registerUser: RegisterUserDto) {
+  async userRegister(@Body() registerUser: RegisterUserDto): Promise<{
+    accessToken: string;
+    refreshToken: string;
+  }> {
     const { email } = registerUser;
 
-    const [userExist, findUserByEmailError] = await of(
-      this.userService.findUserByEmail(email)
-    );
-
-    if (findUserByEmailError) {
-      throw new BadRequestException(` ${findUserByEmailError.message}`);
-    }
+    const userExist = await this.userService.findUserByEmail(email);
 
     if (userExist) {
       throw new ConflictException(USER_ALREADY_REGISTER);
     }
 
-    const [user, userRegisterError] = await of(
-      this.userService.registerUser(registerUser)
-    );
+    const user = await this.userService.registerUser(registerUser);
 
-    if (userRegisterError) {
-      throw new BadRequestException(` ${userRegisterError.message}`);
-    }
-    return {
+    const accessToken = await this.authService.generateAccessToken({
+      _id: user._id,
       name: user.name,
       email: user.email,
-      writingFor: user.writingFor,
-    };
+    });
+
+    const refreshToken = await this.authService.generateRefreshToken({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+    });
+
+    return { accessToken, refreshToken };
   }
 
   @Post('login')
   @UsePipes(new ValidationPipe({ transform: true }))
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginUser: LoginUserDto) {
+  async login(@Body() loginUser: LoginUserDto): Promise<{
+    accessToken: string;
+    refreshToken: string;
+  }> {
     const { email, password } = loginUser;
 
-    const [userExist, findUserByEmailError] = await of(
-      this.userService.findUserByEmail(email)
-    );
-
-    if (findUserByEmailError) {
-      throw new BadRequestException(` ${findUserByEmailError.message}`);
-    }
+    const userExist = await this.userService.findUserByEmail(email);
 
     if (!userExist) {
       throw new BadRequestException(USER_NOT_FOUND);
     }
 
-    const [validPassword, comparePasswordError] = await of(
-      this.authService.comparePassword(password, userExist.password)
+    const validPassword = await this.authService.comparePassword(
+      password,
+      userExist.password
     );
-
-    if (comparePasswordError) {
-      throw new BadRequestException(` ${comparePasswordError.message}`);
-    }
 
     if (!validPassword) {
       throw new BadRequestException(INVALID_EMAIL_PASSWORD);
     }
-    const [accessToken, generateAccessTokenError] = await of(
-      this.authService.generateAccessToken(userExist)
-    );
-    if (generateAccessTokenError) {
-      throw new BadRequestException(` ${generateAccessTokenError.message}`);
-    }
-    const [refreshToken, generateRefreshTokenError] = await of(
-      this.authService.generateRefreshToken(userExist)
-    );
-    if (generateRefreshTokenError) {
-      throw new BadRequestException(` ${generateRefreshTokenError.message}`);
-    }
+    const accessToken = await this.authService.generateAccessToken(userExist);
+
+    const refreshToken = await this.authService.generateRefreshToken(userExist);
+
     return { accessToken, refreshToken };
   }
 
   @Get('profile')
   @UseGuards(AuthGuard('jwt'))
   @HttpCode(HttpStatus.OK)
-  async protectedRoute(@Req() req) {
+  async protectedRoute(@Req() req): Promise<string> {
     console.log(req.user);
     return 'This is a protected route';
   }
 
   @Post('refresh-token')
   @HttpCode(HttpStatus.OK)
-  async generateAccessToken(@Body() refreshTokenDTO: RefreshTokenDTO) {
-    const [user, verifyRefreshTokenError] = await of(
-      this.authService.verifyRefreshToken(refreshTokenDTO.refreshToken)
+  async generateAccessToken(@Body() refreshTokenDTO: RefreshTokenDTO): Promise<{
+    accessToken: string;
+    refreshToken: string;
+  }> {
+    const user = await this.authService.verifyRefreshToken(
+      refreshTokenDTO.refreshToken
     );
-
-    if (verifyRefreshTokenError) {
-      throw new BadRequestException(` ${verifyRefreshTokenError.message}`);
-    }
 
     if (!user) {
       throw new BadRequestException(INVALID_TOKEN);
     }
-    const [accessToken, generateAccessTokenError] = await of(
-      this.authService.generateAccessToken(user)
-    );
+    const accessToken = await this.authService.generateAccessToken(user);
 
-    if (generateAccessTokenError) {
-      throw new BadRequestException(` ${generateAccessTokenError.message}`);
-    }
+    const tokenRefresh = await this.authService.generateRefreshToken(user);
 
-    const [tokenRefresh, generateRefreshTokenError] = await of(
-      this.authService.generateRefreshToken(user)
-    );
-
-    if (generateRefreshTokenError) {
-      throw new BadRequestException(` ${generateRefreshTokenError.message}`);
-    }
     return {
       accessToken,
       refreshToken: tokenRefresh,
     };
+  }
+  @Get('google-redirect')
+  @UseGuards(AuthGuard('google'))
+  async googleAuthRedirect(@Req() req) {
+    const { email, firstName, lastName } = req.user;
+    const name = `${firstName}${' '}${lastName}`;
+
+    const user = await this.userService.registerUserGoogle({ name, email });
+
+    return user;
   }
 }

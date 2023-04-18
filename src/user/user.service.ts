@@ -1,9 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { AuthService } from 'src/auth/auth.service';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { UserDocument } from './models/user.model';
 import { InjectModel } from '@nestjs/mongoose';
-import { of } from 'await-of';
 import { USER } from 'src/utils/constants';
 
 @Injectable()
@@ -14,41 +13,48 @@ export class UserService {
   ) {}
 
   async findUserByEmail(email) {
-    const [user, findUserError] = await of(this.userModel.findOne({ email }));
-
-    if (findUserError) {
-      throw new BadRequestException(` ${findUserError.message}`);
-    }
+    const user = await this.userModel.findOne({ email });
 
     return user;
   }
-  async registerUser(user) {
+  async registerUser(user): Promise<{
+    name: string;
+    email: string;
+    writingFor: string;
+    _id: Types.ObjectId;
+  }> {
     const { name, email, password, writingFor } = user;
 
-    const [hash, hashPasswordError] = await of(
-      this.authService.hashPassword(password)
+    const hash = await this.authService.hashPassword(password);
+
+    const registerUser = await this.userModel.create({
+      name,
+      email,
+      password: hash,
+      writingFor,
+    });
+
+    return JSON.parse(JSON.stringify(registerUser));
+  }
+  async registerUserGoogle(user) {
+    const { name, email } = user;
+    const registerUser = await this.userModel.findOneAndUpdate(
+      { email },
+      { name, email },
+      { upsert: true }
     );
 
-    if (hashPasswordError) {
-      throw new BadRequestException(` ${hashPasswordError.message}`);
-    }
-
-    const [registerUser, createUserError] = await of(
-      this.userModel.create({
-        name,
-        email,
-        password: hash,
-        writingFor,
-      })
+    const accessToken = await this.authService.generateAccessToken(
+      registerUser
     );
 
-    if (createUserError) {
-      throw new BadRequestException(` ${createUserError.message}`);
-    }
+    const refreshToken = await this.authService.generateRefreshToken(
+      registerUser
+    );
+
     return {
-      name: registerUser.name,
-      email: registerUser.email,
-      writingFor: registerUser.writingFor,
+      accessToken,
+      refreshToken,
     };
   }
 }
