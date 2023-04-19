@@ -41,7 +41,7 @@ export class UserService {
     const registerUser = await this.userModel.findOneAndUpdate(
       { email },
       { name, email },
-      { upsert: true }
+      { new: true, upsert: true }
     );
 
     const accessToken = await this.authService.generateAccessToken(
